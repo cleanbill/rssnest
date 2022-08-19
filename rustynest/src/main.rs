@@ -1,11 +1,16 @@
 use feeds_utils::Feed_info;
 use log::*;
 use rss::{Channel, Item};
-use std::{error::Error, fs::{self, File}, path::Path, io::Write};
+use std::{
+    error::Error,
+    fs::{self, File},
+    io::Write,
+    path::Path, time::{SystemTime, UNIX_EPOCH},
+};
 use text_colorizer::*;
 
-pub mod feeds_utils;
 pub mod config_utils;
+pub mod feeds_utils;
 pub mod store;
 use structopt::StructOpt;
 
@@ -33,10 +38,19 @@ async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
     Ok(channel)
 }
 
-async fn download(url: &str, work_dir: &str) -> Result<(),Box<dyn Error>> {
+async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
 
-    let filepath = format!("{}/needtogetfilename.mp3", work_dir);
+    let slash_index = url.rfind("/").unwrap()+1;   
+    let filename = &url[slash_index..url.len()];
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH).unwrap();
+    let prefix = format!("{}-{:?}", name, since_the_epoch);
+
+    fs::create_dir_all(work_dir)?;
+
+    let filepath = format!("{}/{}-{}", work_dir, prefix, filename);
     let path = Path::new(&filepath);
 
     let mut file = match File::create(&path) {
@@ -44,11 +58,11 @@ async fn download(url: &str, work_dir: &str) -> Result<(),Box<dyn Error>> {
         Ok(file) => file,
     };
     file.write_all(&content);
-    eprintln!("{} has been saved",filepath);
+    eprintln!("{} has been saved", filepath);
     Ok(())
 }
 
-async fn load_rss(url: &str) -> Channel{
+async fn load_rss(url: &str) -> Channel {
     let data = match load_feed(url).await {
         Ok(channel) => channel,
         Err(e) => {
@@ -78,12 +92,13 @@ async fn main() {
     info!("Welcome");
 
     let config = config_utils::get_config(&opt.config_filename);
-    warn!("Finding {}",config.general.feed_file);
-    let feed_data: Feed_info = feeds_utils::get_feeds(&config.general.feed_file); 
-    warn!("Feed data {:?}",feed_data.feeds.first());
+    warn!("Finding {}", config.general.feed_file);
+    let feed_data: Feed_info = feeds_utils::get_feeds(&config.general.feed_file);
+    warn!("Feed data {:?}", feed_data.feeds.first());
 
     for feed in feed_data.feeds {
-        process(feed.name,&feed.url, &config.general.audio_dir).await;
+        let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
+        process(feed.name, &feed.url, &file_path).await;
     }
 }
 
@@ -108,16 +123,15 @@ async fn process_item(name: String, item: &Item, work_dir: &str) {
     } else {
         warn!("Found new {}", &filename);
         // TODO download lastest mp3
-        download(filename, work_dir).await;
+        download(&name,filename, work_dir).await;
         store::insert(name, filename);
     }
 }
 
-
-fn get_latest(item: &Item) -> Option<&str>  {
+fn get_latest(item: &Item) -> Option<&str> {
     let enclosure_opt = item.enclosure();
-    if (enclosure_opt == None){
-        return  None
+    if (enclosure_opt == None) {
+        return None;
     }
     let enclosure = enclosure_opt.unwrap();
     return Some(enclosure.url());
