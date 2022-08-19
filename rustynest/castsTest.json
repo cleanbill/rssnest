@@ -1,0 +1,16 @@
+{
+    "Misc": {
+        "User": "mick"
+    },
+    "Feeds": [{
+        "Name": "The Rest Is Politics",
+        "Desc": "The Rest Is Politics",
+        "Url": "https://feeds.acast.com/public/shows/620cc95e2641e200137b94d8",
+        "Dir": "news"
+    }, {
+        "Name": "Security Now",
+        "Desc": "Security Now",
+        "Url": "https://feeds.twit.tv/sn.xml",
+        "Dir": "tech"
+    }]
+}

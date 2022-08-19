@@ -1,0 +1,25 @@
+{
+    "General": {
+        "FeedFile": "./castsTest.json",
+        "AudioDir": "./audio/",
+        "VisualDir": "./visual/",
+        "DataDir": "./"
+    },
+    "Propagate": {
+        "QtyPerPage": 20,    
+        "Ftp": {
+            "Url": "www.myfreeisp.net",
+            "Port": 21,
+            "Usr": "me@myfreeisp.net",
+            "Pw": "not-telling"
+        },
+        "Tweet": {
+            "ConsumerKey": "Its easy to get this",
+            "ConsumerSecret": "info if you just click around",
+            "AccessTokenKey": "the twitter site",
+            "AccessTokenSecret": "under your account"
+        },
+        "ApiKey": "This is for googles url shortening web service, you'll need the key and to turn it on"
+    }
+}
+

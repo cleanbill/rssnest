@@ -1,0 +1,19 @@
+{
+    "misc": {
+        "user": "mick",
+        "createdOn": "2011-03-09 03:30:53"
+    },
+    "feeds": [{
+        "name": "Linux Voice",
+        "desc": "linux voice",
+        "url": "http://www.linuxvoice.com/podcast_ogg.rss",
+        "date": null
+        "dir": ""
+    }, {
+        "name": "py developer",
+        "desc": "kscottz",
+        "url": "http://www.kscottz.com/feed/",
+        "date": null
+        "dir": ""
+    }]
+}
