@@ -5,7 +5,8 @@ use std::{
     error::Error,
     fs::{self, File},
     io::Write,
-    path::Path, time::{SystemTime, UNIX_EPOCH},
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use text_colorizer::*;
 
@@ -34,18 +35,16 @@ struct Opt {
 async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
     let channel = Channel::read_from(&content[..])?;
-    //dbg!(&channel);
     Ok(channel)
 }
 
 async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
 
-    let slash_index = url.rfind("/").unwrap()+1;   
+    let slash_index = url.rfind("/").unwrap() + 1;
     let filename = &url[slash_index..url.len()];
     let start = SystemTime::now();
-    let since_the_epoch = start
-        .duration_since(UNIX_EPOCH).unwrap();
+    let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
     let prefix = format!("{}-{:?}", name, since_the_epoch);
 
     fs::create_dir_all(work_dir)?;
@@ -94,11 +93,11 @@ async fn main() {
     let config = config_utils::get_config(&opt.config_filename);
     warn!("Finding {}", config.general.feed_file);
     let feed_data: Feed_info = feeds_utils::get_feeds(&config.general.feed_file);
-    warn!("Feed data {:?}", feed_data.feeds.first());
 
     for feed in feed_data.feeds {
+        warn!("Feed data {:?}", feed);
         let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
-        process(feed.name, &feed.url, &file_path).await;
+        process(feed.name.replace(" ", "-"), &feed.url, &file_path).await;
     }
 }
 
@@ -108,7 +107,6 @@ async fn process(name: String, url: &str, work_dir: &str) {
 }
 
 async fn process_item(name: String, item: &Item, work_dir: &str) {
-    // TODO find latest mp3
     let filename_opt = get_latest(item);
     if filename_opt == None {
         return;
@@ -123,7 +121,7 @@ async fn process_item(name: String, item: &Item, work_dir: &str) {
     } else {
         warn!("Found new {}", &filename);
         // TODO download lastest mp3
-        download(&name,filename, work_dir).await;
+        download(&name, filename, work_dir).await;
         store::insert(name, filename);
     }
 }
