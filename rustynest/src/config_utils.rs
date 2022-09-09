@@ -15,27 +15,27 @@ pub struct General {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Propagate {
-    qty_per_page: u8,
-    ftp: Ftp,
-    tweet: Tweet,
-    api_key: String,
+    pub qty_per_page: u8,
+    pub ftp: Ftp,
+    pub tweet: Tweet,
+    pub api_key: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Ftp {
-    url: String,
-    port: u8,
-    usr: String,
-    pw: String,
+    pub url: String,
+    pub port: u8,
+    pub usr: String,
+    pub pw: String,
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Tweet {
-    consumer_key: String,
-    consumer_secret: String,
-    access_token_key: String,
-    access_token_secret: String,
+    pub consumer_key: String,
+    pub consumer_secret: String,
+    pub access_token_key: String,
+    pub access_token_secret: String,
 }
 
 #[derive(Debug, Deserialize)]

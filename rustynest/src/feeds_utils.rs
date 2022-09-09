@@ -20,12 +20,12 @@ pub struct Feed {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct Feed_info {
+pub struct FeedInfo {
     pub misc: Misc,
     pub feeds: Vec<Feed>,
 }
 
-pub fn get_feeds(filename: &str) -> Feed_info {
+pub fn get_feeds(filename: &str) -> FeedInfo {
     let data: String = match fs::read_to_string(filename) {
         Ok(v) => v,
         Err(e) => {
@@ -38,7 +38,7 @@ pub fn get_feeds(filename: &str) -> Feed_info {
             std::process::exit(1);
         }
     };
-    let feed_data: Feed_info = serde_json::from_str(&data).expect("JSON was not well-formatted");
+    let feed_data: FeedInfo = serde_json::from_str(&data).expect("JSON was not well-formatted");
     warn!("using '{}' feed file", filename);
     feed_data
 }

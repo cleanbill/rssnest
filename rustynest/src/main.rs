@@ -1,6 +1,7 @@
-use feeds_utils::Feed_info;
+use feeds_utils::FeedInfo;
 use log::*;
 use rss::{Channel, Item};
+use sqlite::Connection;
 use std::{
     error::Error,
     fs::{self, File},
@@ -42,7 +43,8 @@ async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn E
     let content = reqwest::get(url).await?.bytes().await?;
 
     let slash_index = url.rfind("/").unwrap() + 1;
-    let filename = &url[slash_index..url.len()];
+    let end_index = url.rfind(".").unwrap() + 4;
+    let filename = &url[slash_index..end_index];
     let start = SystemTime::now();
     let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
     let prefix = format!("{}-{:?}", name, since_the_epoch);
@@ -56,29 +58,42 @@ async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn E
         Err(why) => panic!("couldn't create {}", why),
         Ok(file) => file,
     };
-    file.write_all(&content);
-    eprintln!("{} has been saved", filepath);
-    Ok(())
-}
-
-async fn load_rss(url: &str) -> Channel {
-    let data = match load_feed(url).await {
-        Ok(channel) => channel,
+    match file.write_all(&content) {
+        Ok(_ok) => eprintln!("{} has been saved", filepath),
         Err(e) => {
             error!(
-                "{} failed to get rss '{}': {:?}",
+                "{} failed to get download '{}': {:?}",
                 "Error:".red().bold(),
                 url,
                 e
             );
-            std::process::exit(1);
         }
     };
-    return data;
+
+    return Ok(());
+}
+
+async fn load_rss(url: &str) -> Result<Channel, String> {
+    let data = match load_feed(url).await {
+        Ok(channel) => channel,
+        Err(e) => {
+            error!(
+                "{} failed to load rss '{}': {:?}",
+                "Error:".red().bold(),
+                url,
+                e
+            );
+            return Err("Can't load".to_string());
+        }
+    };
+    return Ok(data);
 }
 
 #[tokio::main]
 async fn main() {
+    use std::time::Instant;
+    let now = Instant::now();
+
     let opt = Opt::from_args();
 
     stderrlog::new()
@@ -92,28 +107,48 @@ async fn main() {
 
     let config = config_utils::get_config(&opt.config_filename);
     warn!("Finding {}", config.general.feed_file);
-    let feed_data: Feed_info = feeds_utils::get_feeds(&config.general.feed_file);
+    let feed_data: FeedInfo = feeds_utils::get_feeds(&config.general.feed_file);
+
+    let connection = store::create();
 
     for feed in feed_data.feeds {
         warn!("Feed data {:?}", feed);
-        let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
-        process(feed.name.replace(" ", "-"), &feed.url, &file_path).await;
+        let bad = store::bad_feed(&feed.url, &connection);
+
+        if bad {
+            error!("Marked as bad feed {}", &feed.url);
+        } else {
+            let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
+            process(
+                feed.name.replace(" ", "-"),
+                &feed.url,
+                &file_path,
+                &connection,
+            )
+            .await;    
+        }
+    }
+    let elapsed = now.elapsed();
+    warn!("finished {:.2?}", elapsed);
+}
+
+async fn process(name: String, url: &str, work_dir: &str, connection: &Connection) {
+    let result = load_rss(url).await;
+    match result {
+        Ok(data) => process_item(name, data.items.first().unwrap(), work_dir, connection, &url).await,
+        Err(_err) => {
+            store::report_bad_feed(url.to_string(), &connection)
+        },
     }
 }
 
-async fn process(name: String, url: &str, work_dir: &str) {
-    let data = load_rss(url).await;
-    process_item(name, data.items.first().unwrap(), work_dir).await;
-}
-
-async fn process_item(name: String, item: &Item, work_dir: &str) {
+async fn process_item(name: String, item: &Item, work_dir: &str, connection: &Connection, url: &str) {
     let filename_opt = get_latest(item);
     if filename_opt == None {
         return;
     }
     let filename = filename_opt.unwrap();
 
-    let connection = store::create();
     let have = store::already_have(filename, &connection);
     if have {
         warn!("Already have {}", filename);
@@ -121,14 +156,26 @@ async fn process_item(name: String, item: &Item, work_dir: &str) {
     } else {
         warn!("Found new {}", &filename);
         // TODO download lastest mp3
-        download(&name, filename, work_dir).await;
+        match download(&name, filename, work_dir).await {
+            Ok(channel) => channel,
+            Err(e) => {
+                error!(
+                    "{} failed to get process item in rss '{}': {:?}",
+                    "Error:".red().bold(),
+                    &name,
+                    e
+                );
+                store::report_bad_feed(url.to_string(), &connection);
+                return;
+            }
+        };
         store::insert(name, filename);
     }
 }
 
 fn get_latest(item: &Item) -> Option<&str> {
     let enclosure_opt = item.enclosure();
-    if (enclosure_opt == None) {
+    if enclosure_opt == None {
         return None;
     }
     let enclosure = enclosure_opt.unwrap();
