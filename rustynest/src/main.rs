@@ -35,6 +35,7 @@ struct Opt {
 
 async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
+    eprint!("{:?}", content);
     let channel = Channel::read_from(&content[..])?;
     Ok(channel)
 }
@@ -112,10 +113,13 @@ async fn main() {
     let connection = store::create();
 
     for feed in feed_data.feeds {
-        warn!("Feed data {:?}", feed);
+        let maron = feed.name == "wtfpod";
         let bad = store::bad_feed(&feed.url, &connection);
-
-        if bad {
+        if bad && maron {
+            warn!("Bad Maron Feed data {:?}", feed);
+            error!("Skipping the bad mark {}", &feed.url);
+        }
+        if bad  && !maron {
             error!("Marked as bad feed {}", &feed.url);
         } else {
             let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
@@ -125,7 +129,7 @@ async fn main() {
                 &file_path,
                 &connection,
             )
-            .await;    
+            .await;
         }
     }
     let elapsed = now.elapsed();
@@ -135,14 +139,33 @@ async fn main() {
 async fn process(name: String, url: &str, work_dir: &str, connection: &Connection) {
     let result = load_rss(url).await;
     match result {
-        Ok(data) => process_item(name, data.items.first().unwrap(), work_dir, connection, &url).await,
+        Ok(data) => {
+            process_item(
+                name,
+                data.items.first().unwrap(),
+                work_dir,
+                connection,
+                &url,
+            )
+            .await
+        }
         Err(_err) => {
-            store::report_bad_feed(url.to_string(), &connection)
+            if name == "wtfpod" {
+                warn!("Not reporting wtfpod as bad");
+            } else {
+                store::report_bad_feed(url.to_string(), &connection)
+            }
         },
     }
 }
 
-async fn process_item(name: String, item: &Item, work_dir: &str, connection: &Connection, url: &str) {
+async fn process_item(
+    name: String,
+    item: &Item,
+    work_dir: &str,
+    connection: &Connection,
+    url: &str,
+) {
     let filename_opt = get_latest(item);
     if filename_opt == None {
         return;
