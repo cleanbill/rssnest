@@ -1,5 +1,5 @@
 use log::warn;
-use sqlite::{Connection, State};
+use sqlite::{ Connection, State };
 // use chrono::{NaiveDateTime};
 
 // struct Audio {
@@ -14,6 +14,8 @@ static DBNAME: &'static str = "rssnest.db";
 pub fn create() -> Connection {
     let connection = sqlite::open(DBNAME).unwrap();
 
+    // Do one for the feed lists?
+
     connection
         .execute(
             "
@@ -23,7 +25,7 @@ pub fn create() -> Connection {
              name TEXT NOT NULL,
              checked_qty INTEGER DEFAULT 1,
              Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
-            ",
+            "
         )
         .unwrap();
 
@@ -34,7 +36,7 @@ pub fn create() -> Connection {
             (id INTEGER PRIMARY KEY AUTOINCREMENT, 
              feed_url TEXT NOT NULL UNIQUE,
              Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
-            ",
+            "
         )
         .unwrap();
 
@@ -74,8 +76,15 @@ pub fn bad_feed(feed_url: &str, connection: &Connection) -> bool {
     return found;
 }
 
+pub fn delete_bad_feed(connection: &Connection) {
+    // let connection = sqlite::open(DBNAME).unwrap();
+    let sql = format!(" DELETE FROM badfeed ");
+    warn!("Deleting {}", sql);
+    connection.execute(sql).unwrap();
+}
+
 pub fn report_bad_feed(feed_url: String, connection: &Connection) {
-   // let connection = sqlite::open(DBNAME).unwrap();
+    // let connection = sqlite::open(DBNAME).unwrap();
     let sql = format!(" INSERT INTO badfeed (feed_url) VALUES ('{}')", feed_url);
     warn!("inserting {}", sql);
     connection.execute(sql).unwrap();
@@ -84,25 +93,24 @@ pub fn report_bad_feed(feed_url: String, connection: &Connection) {
 pub fn insert(name: String, filename: &str) {
     let connection = sqlite::open(DBNAME).unwrap();
     let san_filename = filename.replace("'", "\'");
-    let sql = format!(
-        " INSERT INTO mp3 (filename, name) VALUES ('{}','{}')",
-        san_filename, name
-    );
+    let sql = format!(" INSERT INTO mp3 (filename, name) VALUES ('{}','{}')", san_filename, name);
     warn!("inserting {}", sql);
     connection.execute(sql).unwrap();
 }
 
 pub fn bump(filename: &str, connection: &Connection) {
     let san_filename = filename.replace("'", "\'");
-    let sql = format!(
-        " UPDATE mp3 SET checked_qty = checked_qty WHERE filename = '{}'",
-        san_filename
-    );
+    let sql =
+        format!(" UPDATE mp3 SET checked_qty = checked_qty WHERE filename = '{}'", san_filename);
     connection.execute(sql).unwrap();
 }
 
 pub fn housekeep(amount: u8, name: &str) {
     let connection = sqlite::open(DBNAME).unwrap();
-    let sql = format!("DELETE FROM mp3 WHERE name = '{}' and id NOT IN (SELECT DISTINCT id FROM mp3 ORDER BY id DESC LIMIT {})", name, amount);
+    let sql = format!(
+        "DELETE FROM mp3 WHERE name = '{}' and id NOT IN (SELECT DISTINCT id FROM mp3 ORDER BY id DESC LIMIT {})",
+        name,
+        amount
+    );
     connection.execute(sql).unwrap();
 }

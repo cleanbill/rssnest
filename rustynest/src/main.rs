@@ -1,13 +1,13 @@
 use feeds_utils::FeedInfo;
 use log::*;
-use rss::{Channel, Item};
+use rss::{ Channel, Item };
 use sqlite::Connection;
 use std::{
     error::Error,
-    fs::{self, File},
+    fs::{ self, File },
     io::Write,
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{ SystemTime, UNIX_EPOCH },
 };
 use text_colorizer::*;
 
@@ -31,11 +31,15 @@ struct Opt {
     /// Timestamp (sec, ms, ns, none)
     #[structopt(short = "t", long = "timestamp")]
     ts: Option<stderrlog::Timestamp>,
+
+    /// Silence all output
+    #[structopt(short = "d", long = "delete")]
+    del: bool,
 }
 
 async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
-    eprint!("{:?}", content);
+    //eprint!("{:?}", content);
     let channel = Channel::read_from(&content[..])?;
     Ok(channel)
 }
@@ -62,14 +66,9 @@ async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn E
     match file.write_all(&content) {
         Ok(_ok) => eprintln!("{} has been saved", filepath),
         Err(e) => {
-            error!(
-                "{} failed to get download '{}': {:?}",
-                "Error:".red().bold(),
-                url,
-                e
-            );
+            error!("{} failed to get download '{}': {:?}", "Error:".red().bold(), url, e);
         }
-    };
+    }
 
     return Ok(());
 }
@@ -78,12 +77,7 @@ async fn load_rss(url: &str) -> Result<Channel, String> {
     let data = match load_feed(url).await {
         Ok(channel) => channel,
         Err(e) => {
-            error!(
-                "{} failed to load rss '{}': {:?}",
-                "Error:".red().bold(),
-                url,
-                e
-            );
+            error!("{} failed to load rss '{}': {:?}", "Error:".red().bold(), url, e);
             return Err("Can't load".to_string());
         }
     };
@@ -97,13 +91,14 @@ async fn main() {
 
     let opt = Opt::from_args();
 
-    stderrlog::new()
+    let _ = stderrlog
+        ::new()
         .module(module_path!())
         .quiet(opt.quiet)
         .verbosity(opt.verbose)
         .timestamp(opt.ts.unwrap_or(stderrlog::Timestamp::Off))
-        .init()
-        .unwrap();
+        .init();
+
     info!("Welcome");
 
     let config = config_utils::get_config(&opt.config_filename);
@@ -111,6 +106,10 @@ async fn main() {
     let feed_data: FeedInfo = feeds_utils::get_feeds(&config.general.feed_file);
 
     let connection = store::create();
+    if opt.del {
+        warn!("Clearing down all bad feeds");
+        store::delete_bad_feed(&connection);
+    }
 
     for feed in feed_data.feeds {
         let maron = feed.name == "wtfpod";
@@ -119,17 +118,11 @@ async fn main() {
             warn!("Bad Maron Feed data {:?}", feed);
             error!("Skipping the bad mark {}", &feed.url);
         }
-        if bad  && !maron {
+        if bad && !maron {
             error!("Marked as bad feed {}", &feed.url);
         } else {
             let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
-            process(
-                feed.name.replace(" ", "-"),
-                &feed.url,
-                &file_path,
-                &connection,
-            )
-            .await;
+            process(feed.name.replace(" ", "-"), &feed.url, &file_path, &connection).await;
         }
     }
     let elapsed = now.elapsed();
@@ -140,14 +133,7 @@ async fn process(name: String, url: &str, work_dir: &str, connection: &Connectio
     let result = load_rss(url).await;
     match result {
         Ok(data) => {
-            process_item(
-                name,
-                data.items.first().unwrap(),
-                work_dir,
-                connection,
-                &url,
-            )
-            .await
+            process_item(name, data.items.first().unwrap(), work_dir, connection, &url).await
         }
         Err(_err) => {
             if name == "wtfpod" {
@@ -155,7 +141,7 @@ async fn process(name: String, url: &str, work_dir: &str, connection: &Connectio
             } else {
                 store::report_bad_feed(url.to_string(), &connection)
             }
-        },
+        }
     }
 }
 
@@ -164,7 +150,7 @@ async fn process_item(
     item: &Item,
     work_dir: &str,
     connection: &Connection,
-    url: &str,
+    url: &str
 ) {
     let filename_opt = get_latest(item);
     if filename_opt == None {
@@ -191,7 +177,7 @@ async fn process_item(
                 store::report_bad_feed(url.to_string(), &connection);
                 return;
             }
-        };
+        }
         store::insert(name, filename);
     }
 }
@@ -201,6 +187,6 @@ fn get_latest(item: &Item) -> Option<&str> {
     if enclosure_opt == None {
         return None;
     }
-    let enclosure = enclosure_opt.unwrap();
+    let enclosure = enclosure_opt?;
     return Some(enclosure.url());
 }

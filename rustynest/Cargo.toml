@@ -5,8 +5,14 @@ edition = "2021"
 
 # See more keys and their definitiond at
 # https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+# This feature will enable the 'vendored' feature of the 'openssl' crate
+# It's useful if you want to provide a single feature flag for your users
+# that controls whether openssl is vendored or not.
+vendored-openssl = ["openssl/vendored"]
 
 [dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 text-colorizer = "1"
 regex = "1"
 reqwest = { version = "0.11.3", features = ["json", "blocking"] }
