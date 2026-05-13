@@ -45,20 +45,25 @@ pub struct Config {
     pub propagate: Propagate,
 }
 
-pub fn get_config(filename: &str) -> Config {
-    let data: String = match fs::read_to_string(filename) {
-        Ok(v) => v,
-        Err(e) => {
-            error!(
-                "{} failed to read from file '{}': {:?}",
-                "Error:".red().bold(),
-                filename,
-                e
-            );
-            std::process::exit(1);
-        }
-    };
-    let config: Config = serde_json::from_str(&data).expect("JSON was not well-formatted");
+pub fn get_config(filename: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    let data: String = fs::read_to_string(filename).map_err(|e| {
+        error!(
+            "{} failed to read from file '{}': {:?}",
+            "Error:".red().bold(),
+            filename,
+            e
+        );
+        e
+    })?;
+    let config: Config = serde_json::from_str(&data).map_err(|e| {
+        error!(
+            "{} failed to parse JSON from '{}': {:?}",
+            "Error:".red().bold(),
+            filename,
+            e
+        );
+        e
+    })?;
     warn!("using '{}' config file", filename);
-    config
+    Ok(config)
 }

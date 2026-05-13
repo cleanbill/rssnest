@@ -76,27 +76,31 @@ async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn E
     }
 
     let start = SystemTime::now();
-    let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
-    let prefix = format!("{}-{:?}", name, since_the_epoch.as_secs());
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Clock went backwards: {}", e))?;
+    let prefix = format!("{}-{}", name, since_the_epoch.as_secs());
 
     fs::create_dir_all(work_dir)?;
 
     let filepath = format!("{}/{}-{}", work_dir, prefix, filename);
     let path = Path::new(&filepath);
 
-    let mut file = match File::create(&path) {
-        Err(why) => panic!("couldn't create {}: {}", filepath, why),
-        Ok(file) => file,
-    };
+    let mut file = File::create(&path).map_err(|e| {
+        error!("couldn't create {}: {}", filepath, e);
+        e
+    })?;
+
     match file.write_all(&content) {
         Ok(_ok) => eprintln!("{} has been saved", filepath),
         Err(e) => {
             error!(
-                "{} failed to get download '{}': {:?}",
+                "{} failed to write download '{}': {:?}",
                 "Error:".red().bold(),
                 url,
                 e
             );
+            return Err(e.into());
         }
     }
 
@@ -135,19 +139,40 @@ async fn main() {
 
     info!("Welcome");
 
-    let config = config_utils::get_config(&opt.config_filename);
+    let config = match config_utils::get_config(&opt.config_filename) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
     warn!("Finding {}", config.general.feed_file);
-    let feed_data: FeedInfo = feeds_utils::get_feeds(&config.general.feed_file);
+    let feed_data: FeedInfo = match feeds_utils::get_feeds(&config.general.feed_file) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
 
-    let connection = store::create();
+    let connection = match store::create() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to create/open database: {:?}", e);
+            return;
+        }
+    };
+
     if opt.del {
         warn!("Clearing down all bad feeds");
-        store::delete_bad_feed(&connection);
+        if let Err(e) = store::delete_bad_feed(&connection) {
+            error!("Failed to clear bad feeds: {:?}", e);
+        }
     }
 
     for feed in feed_data.feeds {
         let maron = feed.name == "wtfpod";
-        let bad = store::bad_feed(&feed.url, &connection);
+        let bad = match store::bad_feed(&feed.url, &connection) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Database error checking for bad feed: {:?}", e);
+                false
+            }
+        };
         if bad && maron {
             warn!("Bad Maron Feed data {:?}", feed);
             error!("Skipping the bad mark {}", &feed.url);
@@ -183,7 +208,9 @@ async fn process(name: String, url: &str, work_dir: &str, connection: &Connectio
             if name == "wtfpod" {
                 warn!("Not reporting wtfpod as bad");
             } else {
-                store::report_bad_feed(url.to_string(), connection)
+                if let Err(e) = store::report_bad_feed(url.to_string(), connection) {
+                    error!("Failed to report bad feed in database: {:?}", e);
+                }
             }
         }
     }
@@ -200,16 +227,27 @@ async fn process_item(
         return;
     };
 
-    let have = store::already_have(enclosure_url, connection);
+    let have = match store::already_have(enclosure_url, connection) {
+        Ok(h) => h,
+        Err(e) => {
+            error!("Database error checking for existing item: {:?}", e);
+            return;
+        }
+    };
+
     if have {
         warn!("Already have {}", enclosure_url);
-        store::bump(enclosure_url, connection);
+        if let Err(e) = store::bump(enclosure_url, connection) {
+            error!("Failed to bump item counter in database: {:?}", e);
+        }
     } else {
         warn!("Found new {}", enclosure_url);
         // TODO download lastest mp3
         match download(&name, enclosure_url, work_dir).await {
             Ok(_) => {
-                store::insert(name, enclosure_url);
+                if let Err(e) = store::insert(name, enclosure_url) {
+                    error!("Failed to insert new item into database: {:?}", e);
+                }
             }
             Err(e) => {
                 error!(
@@ -218,7 +256,9 @@ async fn process_item(
                     &name,
                     e
                 );
-                store::report_bad_feed(url.to_string(), connection);
+                if let Err(db_err) = store::report_bad_feed(url.to_string(), connection) {
+                    error!("Failed to report bad feed in database: {:?}", db_err);
+                }
             }
         }
     }

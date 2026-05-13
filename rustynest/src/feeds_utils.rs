@@ -25,20 +25,25 @@ pub struct FeedInfo {
     pub feeds: Vec<Feed>,
 }
 
-pub fn get_feeds(filename: &str) -> FeedInfo {
-    let data: String = match fs::read_to_string(filename) {
-        Ok(v) => v,
-        Err(e) => {
-            error!(
-                "{} failed to read from file '{}': {:?}",
-                "Error:".red().bold(),
-                filename,
-                e
-            );
-            std::process::exit(1);
-        }
-    };
-    let feed_data: FeedInfo = serde_json::from_str(&data).expect("JSON was not well-formatted");
+pub fn get_feeds(filename: &str) -> Result<FeedInfo, Box<dyn std::error::Error>> {
+    let data: String = fs::read_to_string(filename).map_err(|e| {
+        error!(
+            "{} failed to read from file '{}': {:?}",
+            "Error:".red().bold(),
+            filename,
+            e
+        );
+        e
+    })?;
+    let feed_data: FeedInfo = serde_json::from_str(&data).map_err(|e| {
+        error!(
+            "{} failed to parse JSON from '{}': {:?}",
+            "Error:".red().bold(),
+            filename,
+            e
+        );
+        e
+    })?;
     warn!("using '{}' feed file", filename);
-    feed_data
+    Ok(feed_data)
 }
