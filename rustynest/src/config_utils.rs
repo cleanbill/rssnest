@@ -1,6 +1,6 @@
 use log::*;
 use serde::Deserialize;
-use std::{fs};
+use std::fs;
 use text_colorizer::Colorize;
 
 #[derive(Debug, Deserialize)]

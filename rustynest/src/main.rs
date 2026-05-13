@@ -1,13 +1,13 @@
 use feeds_utils::FeedInfo;
 use log::*;
-use rss::{ Channel, Item };
+use rss::{Channel, Item};
 use sqlite::Connection;
 use std::{
     error::Error,
-    fs::{ self, File },
+    fs::{self, File},
     io::Write,
     path::Path,
-    time::{ SystemTime, UNIX_EPOCH },
+    time::{SystemTime, UNIX_EPOCH},
 };
 use text_colorizer::*;
 
@@ -47,12 +47,15 @@ async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
 async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
 
-    let slash_index = url.rfind("/").unwrap() + 1;
-    let end_index = url.rfind(".").unwrap() + 4;
-    let filename = &url[slash_index..end_index];
+    let url_without_query = url.split('?').next().unwrap_or(url);
+    let mut filename = url_without_query.split('/').last().unwrap_or("download");
+    if filename.is_empty() {
+        filename = "download";
+    }
+
     let start = SystemTime::now();
     let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
-    let prefix = format!("{}-{:?}", name, since_the_epoch);
+    let prefix = format!("{}-{:?}", name, since_the_epoch.as_secs());
 
     fs::create_dir_all(work_dir)?;
 
@@ -60,24 +63,34 @@ async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn E
     let path = Path::new(&filepath);
 
     let mut file = match File::create(&path) {
-        Err(why) => panic!("couldn't create {}", why),
+        Err(why) => panic!("couldn't create {}: {}", filepath, why),
         Ok(file) => file,
     };
     match file.write_all(&content) {
         Ok(_ok) => eprintln!("{} has been saved", filepath),
         Err(e) => {
-            error!("{} failed to get download '{}': {:?}", "Error:".red().bold(), url, e);
+            error!(
+                "{} failed to get download '{}': {:?}",
+                "Error:".red().bold(),
+                url,
+                e
+            );
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
 async fn load_rss(url: &str) -> Result<Channel, String> {
     let data = match load_feed(url).await {
         Ok(channel) => channel,
         Err(e) => {
-            error!("{} failed to load rss '{}': {:?}", "Error:".red().bold(), url, e);
+            error!(
+                "{} failed to load rss '{}': {:?}",
+                "Error:".red().bold(),
+                url,
+                e
+            );
             return Err("Can't load".to_string());
         }
     };
@@ -91,8 +104,7 @@ async fn main() {
 
     let opt = Opt::from_args();
 
-    let _ = stderrlog
-        ::new()
+    let _ = stderrlog::new()
         .module(module_path!())
         .quiet(opt.quiet)
         .verbosity(opt.verbose)
@@ -122,7 +134,13 @@ async fn main() {
             error!("Marked as bad feed {}", &feed.url);
         } else {
             let file_path = format!("{}/{}", &config.general.audio_dir, feed.dir);
-            process(feed.name.replace(" ", "-"), &feed.url, &file_path, &connection).await;
+            process(
+                feed.name.replace(" ", "-"),
+                &feed.url,
+                &file_path,
+                &connection,
+            )
+            .await;
         }
     }
     let elapsed = now.elapsed();
@@ -133,13 +151,17 @@ async fn process(name: String, url: &str, work_dir: &str, connection: &Connectio
     let result = load_rss(url).await;
     match result {
         Ok(data) => {
-            process_item(name, data.items.first().unwrap(), work_dir, connection, &url).await
+            if let Some(first_item) = data.items.first() {
+                process_item(name, first_item, work_dir, connection, url).await
+            } else {
+                warn!("Feed '{}' has no items", url);
+            }
         }
         Err(_err) => {
             if name == "wtfpod" {
                 warn!("Not reporting wtfpod as bad");
             } else {
-                store::report_bad_feed(url.to_string(), &connection)
+                store::report_bad_feed(url.to_string(), connection)
             }
         }
     }
@@ -150,43 +172,36 @@ async fn process_item(
     item: &Item,
     work_dir: &str,
     connection: &Connection,
-    url: &str
+    url: &str,
 ) {
-    let filename_opt = get_latest(item);
-    if filename_opt == None {
+    let Some(enclosure_url) = get_latest_url(item) else {
         return;
-    }
-    let filename = filename_opt.unwrap();
+    };
 
-    let have = store::already_have(filename, &connection);
+    let have = store::already_have(enclosure_url, connection);
     if have {
-        warn!("Already have {}", filename);
-        store::bump(filename, &connection);
+        warn!("Already have {}", enclosure_url);
+        store::bump(enclosure_url, connection);
     } else {
-        warn!("Found new {}", &filename);
+        warn!("Found new {}", enclosure_url);
         // TODO download lastest mp3
-        match download(&name, filename, work_dir).await {
-            Ok(channel) => channel,
+        match download(&name, enclosure_url, work_dir).await {
+            Ok(_) => {
+                store::insert(name, enclosure_url);
+            }
             Err(e) => {
                 error!(
-                    "{} failed to get process item in rss '{}': {:?}",
+                    "{} failed to process item in rss '{}': {:?}",
                     "Error:".red().bold(),
                     &name,
                     e
                 );
-                store::report_bad_feed(url.to_string(), &connection);
-                return;
+                store::report_bad_feed(url.to_string(), connection);
             }
         }
-        store::insert(name, filename);
     }
 }
 
-fn get_latest(item: &Item) -> Option<&str> {
-    let enclosure_opt = item.enclosure();
-    if enclosure_opt == None {
-        return None;
-    }
-    let enclosure = enclosure_opt?;
-    return Some(enclosure.url());
+fn get_latest_url(item: &Item) -> Option<&str> {
+    item.enclosure().map(|e| e.url())
 }

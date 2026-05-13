@@ -1,5 +1,5 @@
 use log::warn;
-use sqlite::{ Connection, State };
+use sqlite::{Connection, State};
 // use chrono::{NaiveDateTime};
 
 // struct Audio {
@@ -25,7 +25,7 @@ pub fn create() -> Connection {
              name TEXT NOT NULL,
              checked_qty INTEGER DEFAULT 1,
              Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
-            "
+            ",
         )
         .unwrap();
 
@@ -36,7 +36,7 @@ pub fn create() -> Connection {
             (id INTEGER PRIMARY KEY AUTOINCREMENT, 
              feed_url TEXT NOT NULL UNIQUE,
              Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
-            "
+            ",
         )
         .unwrap();
 
@@ -44,36 +44,33 @@ pub fn create() -> Connection {
 }
 
 pub fn already_have(filename: &str, connection: &Connection) -> bool {
-    let san_filename = filename.replace("'", "\'");
     let mut statement = connection
-        .prepare("SELECT * FROM mp3 WHERE filename = ?")
+        .prepare("SELECT 1 FROM mp3 WHERE filename = ?")
         .unwrap()
-        .bind(1, &*san_filename)
+        .bind(1, filename)
         .unwrap();
 
     let mut found = false;
 
     while let State::Row = statement.next().unwrap() {
-        let _filename = statement.read::<String>(0).unwrap();
         found = true;
     }
-    return found;
+    found
 }
 
 pub fn bad_feed(feed_url: &str, connection: &Connection) -> bool {
     let mut statement = connection
-        .prepare("SELECT * FROM badfeed WHERE feed_url = ?")
+        .prepare("SELECT 1 FROM badfeed WHERE feed_url = ?")
         .unwrap()
-        .bind(1, &*feed_url)
+        .bind(1, feed_url)
         .unwrap();
 
     let mut found = false;
 
     while let State::Row = statement.next().unwrap() {
-        let _filename = statement.read::<String>(0).unwrap();
         found = true;
     }
-    return found;
+    found
 }
 
 pub fn delete_bad_feed(connection: &Connection) {
@@ -84,33 +81,46 @@ pub fn delete_bad_feed(connection: &Connection) {
 }
 
 pub fn report_bad_feed(feed_url: String, connection: &Connection) {
-    // let connection = sqlite::open(DBNAME).unwrap();
-    let sql = format!(" INSERT INTO badfeed (feed_url) VALUES ('{}')", feed_url);
-    warn!("inserting {}", sql);
-    connection.execute(sql).unwrap();
+    warn!("inserting bad feed {}", feed_url);
+    let mut statement = connection
+        .prepare("INSERT INTO badfeed (feed_url) VALUES (?)")
+        .unwrap()
+        .bind(1, &*feed_url)
+        .unwrap();
+    statement.next().unwrap();
 }
 
 pub fn insert(name: String, filename: &str) {
     let connection = sqlite::open(DBNAME).unwrap();
-    let san_filename = filename.replace("'", "\'");
-    let sql = format!(" INSERT INTO mp3 (filename, name) VALUES ('{}','{}')", san_filename, name);
-    warn!("inserting {}", sql);
-    connection.execute(sql).unwrap();
+    warn!("inserting mp3 {} for {}", filename, name);
+    let mut statement = connection
+        .prepare("INSERT INTO mp3 (filename, name) VALUES (?, ?)")
+        .unwrap()
+        .bind(1, filename)
+        .unwrap()
+        .bind(2, &*name)
+        .unwrap();
+    statement.next().unwrap();
 }
 
 pub fn bump(filename: &str, connection: &Connection) {
-    let san_filename = filename.replace("'", "\'");
-    let sql =
-        format!(" UPDATE mp3 SET checked_qty = checked_qty WHERE filename = '{}'", san_filename);
-    connection.execute(sql).unwrap();
+    let mut statement = connection
+        .prepare("UPDATE mp3 SET checked_qty = checked_qty + 1 WHERE filename = ?")
+        .unwrap()
+        .bind(1, filename)
+        .unwrap();
+    statement.next().unwrap();
 }
 
 pub fn housekeep(amount: u8, name: &str) {
     let connection = sqlite::open(DBNAME).unwrap();
-    let sql = format!(
-        "DELETE FROM mp3 WHERE name = '{}' and id NOT IN (SELECT DISTINCT id FROM mp3 ORDER BY id DESC LIMIT {})",
-        name,
-        amount
-    );
-    connection.execute(sql).unwrap();
+    let amount = amount as i64;
+    let mut statement = connection
+        .prepare("DELETE FROM mp3 WHERE name = ? AND id NOT IN (SELECT DISTINCT id FROM mp3 ORDER BY id DESC LIMIT ?)")
+        .unwrap()
+        .bind(1, name)
+        .unwrap()
+        .bind(2, amount)
+        .unwrap();
+    statement.next().unwrap();
 }
