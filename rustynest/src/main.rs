@@ -39,9 +39,31 @@ struct Opt {
 
 async fn load_feed(url: &str) -> Result<Channel, Box<dyn Error>> {
     let content = reqwest::get(url).await?.bytes().await?;
-    //eprint!("{:?}", content);
-    let channel = Channel::read_from(&content[..])?;
-    Ok(channel)
+    
+    // First try standard strict parsing
+    match Channel::read_from(&content[..]) {
+        Ok(channel) => Ok(channel),
+        Err(e) => {
+            warn!("Strict XML parsing failed for {}: {:?}. Attempting text cleanup...", url, e);
+            
+            let mut text = String::from_utf8_lossy(&content).into_owned();
+            
+            // Strip any junk before the actual XML starts (like BOMs or trailing whitespace)
+            let start = text.find("<?xml").or_else(|| text.find("<rss")).unwrap_or(0);
+            text = text[start..].to_string();
+            
+            // Clean up typical control characters that break parsers (keeping \n, \r, \t)
+            text.retain(|c| c == '\n' || c == '\r' || c == '\t' || c >= '\u{20}');
+            
+            match Channel::read_from(text.as_bytes()) {
+                Ok(channel) => {
+                    warn!("Successfully parsed {} after text cleanup.", url);
+                    Ok(channel)
+                },
+                Err(e2) => Err(e2.into())
+            }
+        }
+    }
 }
 
 async fn download(name: &str, url: &str, work_dir: &str) -> Result<(), Box<dyn Error>> {
